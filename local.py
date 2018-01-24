@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 __author__ = 'jiavan'
@@ -6,8 +6,7 @@ __author__ = 'jiavan'
 import os
 import json
 import logging
-import SocketServer
-import string
+import socketserver
 import threading
 import time
 import socket
@@ -15,19 +14,29 @@ import hashlib
 import struct
 
 def get_table(key):
-	pass
+    m = hashlib.md5()
+    m.update(key.encode('utf-8'))
+    s = m.digest()
+
+    (a, b) = struct.unpack('<QQ', s)
+    table = [c for c in bytes.maketrans(b'', b'')]
+
+    # TODO: encrypt
+    table = [str(a % (b % (c + 1) + 1)) for c in table]
+
+    return table
 
 def lock_print(msg):
     my_lock.acquire()
     try:
-        print '[%s]%s' % (time.ctime, msg)
+        print('[%s]%s' % (time.ctime, msg))
     finally:
         my_lock.release()
 
-class ThreadingTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
+class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
 
-class Socks5Server(SocketServer.StreamRequestHandler):
+class Socks5Server(socketserver.StreamRequestHandler):
     def encrypt(self, data):
         return data.translate(encrypt_table)
 
@@ -35,30 +44,34 @@ class Socks5Server(SocketServer.StreamRequestHandler):
         return data.translate(decrypt_table)
 
     def handle_tcp(self, sock, remote):
-        fdset = [sock, remote]
-        counter = 0
+        try:
+            fdset = [sock, remote]
+            counter = 0
 
-        while True:
-            r, w, e = select.select(fdset, [], [])
+            while True:
+                r, w, e = select.select(fdset, [], [])
 
-            if sock in r:
-                r_data = sock.recv(4096)
+                if sock in r:
+                    r_data = sock.recv(4096)
 
-                if counter == 1:
-                    try:
-                        lock_print('Connecting ' + r_data[5: 5 + ord(r_data[4])])
-                    except Exception:
-                        pass
+                    if counter == 1:
+                        try:
+                            lock_print('Connecting ' + r_data[5: 5 + ord(r_data[4])])
+                        except Exception:
+                            pass
+                    
+                    if counter < 2:
+                        counter += 1
+                    if retmote.send(self.encrypt(r_data)) <= 0:
+                        break
                 
-                if counter < 2:
-                    counter += 1
-                if retmote.send(self.encrypt(r_data)) <= 0:
-                    break
-            
-            if remote in r:
-                remote_data = self.decrypt(remote.recv(4096))
-                if sock.send(remote_data) <= 0:
-                    break
+                if remote in r:
+                    remote_data = self.decrypt(remote.recv(4096))
+                    if sock.send(remote_data) <= 0:
+                        break
+        finally:
+            sock.close()
+            remote.close()
 
     def handle(self):
         try:
@@ -73,7 +86,7 @@ class Socks5Server(SocketServer.StreamRequestHandler):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
-    print 'Shadowsocks v0.0.1'
+    print('lightproxy v0.0.1')
 
     with open('config.json', 'rb') as f:
         config = json.load(f)
@@ -86,10 +99,9 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
     encrypt_table = ''.join(get_table(KEY))
-    decrypt_table = string.maketrans(encrypt_table, string.maketrans('', ''))
+    decrypt_table = str.maketrans(encrypt_table, encrypt_table)
     my_lock = threading.Lock()
 
-    print 'Starting proxy at port %d' % PORT
+    print('Starting proxy at port %d' % PORT)
     server = ThreadingTCPServer(('127.0.0.1', PORT), Socks5Server)
     server.serve_forever()
-

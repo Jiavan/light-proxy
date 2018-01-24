@@ -1,0 +1,6 @@
+{
+    "server": "jiavan.com",
+    "server_port": 8000,
+    "local_port": 1081,
+    "password": "test"
+}
